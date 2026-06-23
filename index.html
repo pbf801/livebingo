@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Operaciones - Bingo 99 Pro</title>
+    
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #0f172a;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+
+        header {
+            margin-bottom: 20px;
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        #admin-ultima {
+            color: #00ffcc;
+            font-size: 3rem;
+            font-weight: bold;
+        }
+
+        .seccion-control {
+            margin: 15px 0;
+            padding: 15px;
+            background: #1e293b;
+            border-radius: 12px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .seccion-control h3 {
+            width: 100%;
+            margin-bottom: 10px;
+            font-size: 1rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+        }
+
+        .tablero {
+            display: grid;
+            grid-template-columns: repeat(11, 1fr);
+            gap: 8px;
+            max-width: 1000px;
+            margin: 0 auto;
+            background-color: #1e293b;
+            padding: 15px;
+            border-radius: 15px;
+        }
+
+        .bola {
+            background: #334155;
+            color: #94a3b8;
+            font-size: 1.2rem;
+            font-weight: bold;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            margin: 0 auto;
+            border: 1px solid #475569;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+        }
+
+        .bola.activa {
+            background: linear-gradient(135deg, #ffcc00, #ff6600);
+            color: #000000;
+            border-color: #ffffff;
+            box-shadow: 0 0 12px #ff6600;
+        }
+
+        button {
+            padding: 14px 24px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary { background-color: #00ffcc; color: #0f172a; }
+        .btn-danger { background-color: #ef4444; color: white; }
+        
+        /* Botones de premio dinámicos */
+        .btn-premio {
+            background-color: #475569;
+            color: white;
+            border: 3px solid transparent;
+        }
+        .btn-premio.activo-linea {
+            background-color: #2563eb;
+            border-color: #fff;
+            box-shadow: 0 0 15px #2563eb;
+        }
+        .btn-premio.activo-bingo {
+            background-color: #ca8a04;
+            border-color: #fff;
+            box-shadow: 0 0 15px #ca8a04;
+        }
+
+        @media (max-width: 750px) {
+            .tablero { grid-template-columns: repeat(9, 1fr); gap: 5px; }
+            .bola { width: 40px; height: 40px; font-size: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Consola de Control Bingo 99</h1>
+        <h2>Última Bola: <span id="admin-ultima">-</span></h2>
+    </header>
+
+    <div class="seccion-control">
+        <h3>Efectos Especiales del Show</h3>
+        <button id="btn-linea" class="btn-premio">📢 Cantar LÍNEA</button>
+        <button id="btn-bingo" class="btn-premio">👑 Cantar BINGO</button>
+        <button id="btn-apagar-premio" style="background-color: #111827; color: #94a3b8;">Quitar Letrero</button>
+    </div>
+
+    <div class="seccion-control">
+        <h3>Flujo del Tablero</h3>
+        <button id="btn-aleatorio" class="btn-primary">🎲 Siguiente Bola Aleatoria</button>
+        <button id="btn-reiniciar" class="btn-danger">🔄 Reiniciar Todo el Juego</button>
+    </div>
+
+    <main>
+        <div id="tablero-admin" class="tablero"></div>
+    </main>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import { getDatabase, ref, set, update, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+        const firebaseConfig = {
+            databaseURL: "https://bingo-d2165-default-rtdb.europe-west1.firebasedatabase.app/"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        const tableroAdmin = document.getElementById('tablero-admin');
+        const btnAleatorio = document.getElementById('btn-aleatorio');
+        const btnReiniciar = document.getElementById('btn-reiniciar');
+        const adminUltima = document.getElementById('admin-ultima');
+
+        const btnLinea = document.getElementById('btn-linea');
+        const btnBingo = document.getElementById('btn-bingo');
+        const btnApagarPremio = document.getElementById('btn-apagar-premio');
+
+        let estadoBolas = {};
+        let premioEstadoActual = "ninguno";
+
+        // Generar 99 casillas de control manual
+        for (let i = 1; i <= 99; i++) {
+            const bola = document.createElement('div');
+            bola.classList.add('bola');
+            bola.id = `admin-bola-${i}`;
+            bola.innerText = i;
+
+            bola.addEventListener('click', () => {
+                const yaSalio = estadoBolas[i] === true;
+                update(ref(db, `bingo/bolasSacadas`), { [i]: !yaSalio });
+                if (!yaSalio) set(ref(db, 'bingo/ultimaBola'), i);
+            });
+            tableroAdmin.appendChild(bola);
+        }
+
+        // Sincronizar Base de Datos con el Admin
+        onValue(ref(db, 'bingo/'), (snapshot) => {
+            const data = snapshot.val() || {};
+            estadoBolas = data.bolasSacadas || {};
+            adminUltima.innerText = data.ultimaBola || "-";
+            premioEstadoActual = data.premioActivo || "ninguno";
+
+            // Actualizar luces de botones de premio
+            btnLinea.classList.toggle('activo-linea', premioEstadoActual === "linea");
+            btnBingo.classList.toggle('activo-bingo', premioEstadoActual === "bingo");
+
+            for (let i = 1; i <= 99; i++) {
+                const el = document.getElementById(`admin-bola-${i}`);
+                el.classList.toggle('activa', estadoBolas[i] === true);
+            }
+        });
+
+        // Activadores de Premios
+        btnLinea.addEventListener('click', () => {
+            set(ref(db, 'bingo/premioActivo'), premioEstadoActual === "linea" ? "ninguno" : "linea");
+        });
+
+        btnBingo.addEventListener('click', () => {
+            set(ref(db, 'bingo/premioActivo'), premioEstadoActual === "bingo" ? "ninguno" : "bingo");
+        });
+
+        btnApagarPremio.addEventListener('click', () => {
+            set(ref(db, 'bingo/premioActivo'), "ninguno");
+        });
+
+        // Bola Aleatoria
+        btnAleatorio.addEventListener('click', () => {
+            let disponibles = [];
+            for (let i = 1; i <= 99; i++) {
+                if (!estadoBolas[i]) disponibles.push(i);
+            }
+            if (disponibles.length === 0) return alert("¡Todas las bolas fuera!");
+
+            const numeroElegido = disponibles[Math.floor(Math.random() * disponibles.length)];
+            update(ref(db, `bingo/bolasSacadas`), { [numeroElegido]: true });
+            set(ref(db, 'bingo/ultimaBola'), numeroElegido);
+        });
+
+        // Reset
+        btnReiniciar.addEventListener('click', () => {
+            if (confirm("¿Reiniciar juego de cero?")) {
+                let reseteoBolas = {};
+                for (let i = 1; i <= 99; i++) reseteoBolas[i] = false;
+                set(ref(db, 'bingo/'), {
+                    bolasSacadas: reseteoBolas,
+                    ultimaBola: "-",
+                    premioActivo: "ninguno"
+                });
+            }
+        });
+    </script>
+</body>
+</html>
